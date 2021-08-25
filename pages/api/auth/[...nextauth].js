@@ -1,0 +1,47 @@
+import NextAuth from "next-auth";
+import Providers from "next-auth/providers";
+import { verifyPassword } from "../../../lib/auth";
+import { connectToDatabase } from "../../../lib/db";
+
+export default NextAuth({
+  session: {
+    jwt: true,
+  },
+
+  providers: [
+    Providers.Credentials({
+      async authorize(credentials) {
+        const client = await connectToDatabase();
+
+        const usersCollection = await client.db().collection("users");
+
+        const user = await usersCollection.findOne({
+          email: credentials.email,
+        });
+
+        if (!user) {
+          client.close();
+
+          // authorize(){}内で throw new Error() をすると、authorize(){} は自動で reject を返し、他のページへ redirect する
+          throw new Error("No user found...");
+        }
+
+        const isValid = await verifyPassword(
+          credentials.password,
+          user.password
+        );
+
+        if (!isValid) {
+          client.close();
+          throw new Error("Could not log you in...");
+        }
+
+        client.close();
+        // オブジェクトを return することで authorize(){} に認証が成功したことを伝えることができる
+        // ※パスワードはクライアントに返さないよう注意
+        // のちに JWT にエンコードされる
+        return { email: user.email };
+      },
+    }),
+  ],
+});
